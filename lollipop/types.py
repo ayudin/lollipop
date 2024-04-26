@@ -1,9 +1,12 @@
+from __future__ import annotations
+
 from lollipop.errors import ValidationError, ValidationErrorBuilder, \
     ErrorMessagesMixin, merge_errors
 from lollipop.utils import is_sequence, is_mapping, make_context_aware, \
     constant, identity, OpenStruct, DictWithDefault
 from lollipop.compat import string_types, int_types, iteritems, OrderedDict
 import datetime
+import typing as t
 
 
 __all__ = [
@@ -38,39 +41,40 @@ __all__ = [
     'validated_type',
 ]
 
+
 class MissingType(object):
-    def __repr__(self):
+    def __repr__(self) -> str:
         return '<MISSING>'
 
 
 #: Special singleton value (like None) to represent case when value is missing.
-MISSING = MissingType()
+MISSING: t.Final[MissingType] = MissingType()
 
 
 class ValidatorCollection(object):
-    def __init__(self, validators):
+    def __init__(self, validators: list[t.Callable[[t.Any, t.Any], None]]) -> None:
         self._validators = [make_context_aware(validator, 1)
                             for validator in validators]
 
-    def append(self, validator):
+    def append(self, validator: t.Callable[[t.Any, t.Any], None]) -> None:
         self._validators.append(make_context_aware(validator, 1))
 
-    def insert(self, idx, validator):
+    def insert(self, idx, validator: t.Callable[[t.Any, t.Any], None]) -> None:
         self._validators.insert(idx, make_context_aware(validator, 1))
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self._validators)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int) -> t.Callable[[t.Any, t.Any], None]:
         return self._validators[idx]
 
-    def __setitem__(self, idx, validator):
+    def __setitem__(self, idx: int, validator: t.Callable[[t.Any, t.Any], None]) -> None:
         self._validators[idx] = make_context_aware(validator, 1)
 
-    def __delitem__(self, idx):
+    def __delitem__(self, idx: int) -> None:
         del self._validators[idx]
 
-    def __iter__(self):
+    def __iter__(self) -> t.Generator[t.Callable[[t.Any, t.Any], None], None, None]:
         for validator in self._validators:
             yield validator
 
@@ -95,12 +99,16 @@ class Type(ErrorMessagesMixin, object):
         * required - value is required
     """
 
-    default_error_messages = {
+    default_error_messages: dict[str, str] = {
         'invalid': 'Invalid value type',
         'required': 'Value is required',
     }
+    name: str | None
+    description: str | None
+    validators: ValidatorCollection
 
-    def __init__(self, name=None, description=None, validate=None, *args, **kwargs):
+    def __init__(self, name: str | None = None, description: str | None = None,
+                 validate: t.Callable | list[t.Callable] | None = None, *args, **kwargs) -> None:
         super(Type, self).__init__(*args, **kwargs)
         if validate is None:
             validate = []
@@ -111,7 +119,7 @@ class Type(ErrorMessagesMixin, object):
         self.description = description
         self.validators = ValidatorCollection(validate)
 
-    def validate(self, data, context=None):
+    def validate(self, data: t.Any, context: t.Any = None) -> t.Any:
         """Takes serialized data and returns validation errors or None.
 
         :param data: Data to validate.
@@ -124,7 +132,7 @@ class Type(ErrorMessagesMixin, object):
         except ValidationError as ve:
             return ve.messages
 
-    def load(self, data, context=None):
+    def load(self, data: t.Any, context: t.Any = None) -> t.Any:
         """Deserialize data from primitive types. Raises
         :exc:`~lollipop.errors.ValidationError` if data is invalid.
 
@@ -142,7 +150,7 @@ class Type(ErrorMessagesMixin, object):
         errors_builder.raise_errors()
         return data
 
-    def dump(self, value, context=None):
+    def dump(self, value: t.Any, context: t.Any = None) -> t.Any:
         """Serialize data to primitive types. Raises
         :exc:`~lollipop.errors.ValidationError` if data is invalid.
 
@@ -153,7 +161,7 @@ class Type(ErrorMessagesMixin, object):
         """
         return value
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return '<{klass}>'.format(klass=self.__class__.__name__)
 
 
@@ -162,27 +170,31 @@ class Any(Type):
     pass
 
 
-class Number(Type):
+T = t.TypeVar('T')
+
+
+class Number(Type, t.Generic[T]):
     """Any number type (integer/float).
 
     Error message keys:
         * invalid - invalid value type. Interpolation data:
                 * data - actual value
     """
-    num_type = float
-    default_error_messages = {
+    num_type: t.Type[float | int] = float
+    default_error_messages: dict[str, str] = {
         'invalid': 'Value should be number',
     }
 
     _invalid_types = string_types + (bool,)
 
-    def _normalize(self, value):
+    def _normalize(self, value: t.Any) -> float | None:
         try:
             return self.num_type(value)
         except (TypeError, ValueError):
             self._fail('invalid', data=value)
+        return None
 
-    def load(self, data, *args, **kwargs):
+    def load(self, data: t.Any, *args, **kwargs) -> T:
         if data is MISSING or data is None:
             self._fail('required')
 
@@ -191,14 +203,14 @@ class Number(Type):
 
         return super(Number, self).load(self._normalize(data), *args, **kwargs)
 
-    def dump(self, value, *args, **kwargs):
+    def dump(self, value: t.Any, *args, **kwargs) -> T:
         if value is MISSING or value is None:
             self._fail('required')
 
         return super(Number, self).dump(self._normalize(value), *args, **kwargs)
 
 
-class Integer(Number):
+class Integer(Number[int]):
     """An integer type.
 
     Error message keys:
@@ -206,13 +218,13 @@ class Integer(Number):
                 * data - actual value
     """
 
-    num_type = int
-    default_error_messages = {
+    num_type: t.Type[float | int] = int
+    default_error_messages: dict[str, str] = {
         'invalid': 'Value should be integer'
     }
 
 
-class Float(Number):
+class Float(Number[float]):
     """A float type.
 
     Error message keys:
@@ -220,8 +232,8 @@ class Float(Number):
                 * data - actual value
     """
 
-    num_type = float
-    default_error_messages = {
+    num_type: t.Type[float | int] = float
+    default_error_messages: dict[str, str] = {
         'invalid': 'Value should be float'
     }
 
@@ -234,11 +246,11 @@ class String(Type):
                 * data - actual value
     """
 
-    default_error_messages = {
+    default_error_messages: dict[str, str] = {
         'invalid': 'Value should be string',
     }
 
-    def load(self, data, *args, **kwargs):
+    def load(self, data: t.Any, *args, **kwargs) -> str:
         if data is MISSING or data is None:
             self._fail('required')
 
@@ -246,7 +258,7 @@ class String(Type):
             self._fail('invalid')
         return super(String, self).load(data, *args, **kwargs)
 
-    def dump(self, value, *args, **kwargs):
+    def dump(self, value: t.Any, *args, **kwargs) -> str:
         if value is MISSING or value is None:
             self._fail('required')
 
@@ -263,11 +275,11 @@ class Boolean(Type):
                 * data - actual value
     """
 
-    default_error_messages = {
+    default_error_messages: dict[str, str] = {
         'invalid': 'Value should be boolean',
     }
 
-    def load(self, data, *args, **kwargs):
+    def load(self, data: t.Any, *args, **kwargs) -> bool:
         if data is MISSING or data is None:
             self._fail('required')
 
@@ -276,7 +288,7 @@ class Boolean(Type):
 
         return super(Boolean, self).load(data, *args, **kwargs)
 
-    def dump(self, value, *args, **kwargs):
+    def dump(self, value: t.Any, *args, **kwargs) -> bool:
         if value is MISSING or value is None:
             self._fail('required')
 
@@ -315,7 +327,7 @@ class DateTime(Type):
                 * format - format string
     """
 
-    FORMATS = {
+    FORMATS: dict[str, str] = {
         'iso': '%Y-%m-%dT%H:%M:%S%Z',  # shortcut for iso8601
         'iso8601': '%Y-%m-%dT%H:%M:%S%Z',
         'rfc': '%Y-%m-%dT%H:%M:%S%Z',  # shortcut for rfc3339
@@ -323,22 +335,23 @@ class DateTime(Type):
         'rfc822': '%d %b %y %H:%M:%S %Z',
     }
 
-    DEFAULT_FORMAT = 'iso'
+    DEFAULT_FORMAT: str = 'iso'
 
-    default_error_messages = {
+    default_error_messages: dict[str, str] = {
         'invalid': 'Invalid datetime value',
         'invalid_type': 'Value should be string',
         'invalid_format': 'Value should match datetime format',
     }
+    format: str
 
-    def __init__(self, format=None, *args, **kwargs):
+    def __init__(self, format: str | None = None, *args, **kwargs):
         super(DateTime, self).__init__(*args, **kwargs)
         self.format = format or self.DEFAULT_FORMAT
 
     def _convert_value(self, value):
         return value
 
-    def load(self, data, *args, **kwargs):
+    def load(self, data: t.Any, *args, **kwargs) -> datetime.datetime | None:
         if data is MISSING or data is None:
             self._fail('required')
 
@@ -351,8 +364,9 @@ class DateTime(Type):
             return super(DateTime, self).load(date, *args, **kwargs)
         except ValueError:
             self._fail('invalid_format', data=data, format=format_str)
+        return None
 
-    def dump(self, value, *args, **kwargs):
+    def dump(self, value: t.Any, *args, **kwargs) -> str | None:
         if value is MISSING or value is None:
             self._fail('required')
 
@@ -362,6 +376,7 @@ class DateTime(Type):
                 .dump(value.strftime(format_str), *args, **kwargs)
         except (AttributeError, ValueError):
             self._fail('invalid', data=value)
+        return None
 
 
 class Date(DateTime):
@@ -390,7 +405,7 @@ class Date(DateTime):
                 * format - format string
     """
 
-    FORMATS = {
+    FORMATS: dict[str, str] = {
         'iso': '%Y-%m-%d',  # shortcut for iso8601
         'iso8601': '%Y-%m-%d',
         'rfc': '%Y-%m-%d',  # shortcut for rfc3339
@@ -398,9 +413,9 @@ class Date(DateTime):
         'rfc822': '%d %b %y',
     }
 
-    DEFAULT_FORMAT = 'iso'
+    DEFAULT_FORMAT: str = 'iso'
 
-    default_error_messages = {
+    default_error_messages: dict[str, str] = {
         'invalid': 'Invalid date value',
         'invalid_type': 'Value should be string',
         'invalid_format': 'Value should match date format',
@@ -432,14 +447,14 @@ class Time(DateTime):
                 * format - format string
     """
 
-    FORMATS = {
+    FORMATS: dict[str, str] = {
         'iso': '%H:%M:%S',  # shortcut for iso8601
         'iso8601': '%H:%M:%S',
     }
 
-    DEFAULT_FORMAT = 'iso'
+    DEFAULT_FORMAT: str = 'iso'
 
-    default_error_messages = {
+    default_error_messages: dict[str, str] = {
         'invalid': 'Invalid time value',
         'invalid_type': 'Value should be string',
         'invalid_format': 'Value should match time format',
@@ -463,15 +478,16 @@ class List(Type):
         * invalid - invalid list value. Interpolation data:
                 * data - actual value
     """
-    default_error_messages = {
+    default_error_messages: dict[str, str] = {
         'invalid': 'Value should be list',
     }
+    item_type: Type
 
-    def __init__(self, item_type, **kwargs):
+    def __init__(self, item_type: Type, **kwargs):
         super(List, self).__init__(**kwargs)
         self.item_type = item_type
 
-    def load(self, data, *args, **kwargs):
+    def load(self, data: t.Any, *args, **kwargs) -> list[t.Any]:
         if data is MISSING or data is None:
             self._fail('required')
 
@@ -489,7 +505,7 @@ class List(Type):
 
         return super(List, self).load(items, *args, **kwargs)
 
-    def dump(self, value, *args, **kwargs):
+    def dump(self, value: t.Any, *args, **kwargs) -> list[t.Any]:
         if value is MISSING or value is None:
             self._fail('required')
 
@@ -507,7 +523,7 @@ class List(Type):
 
         return super(List, self).dump(items, *args, **kwargs)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return '<{klass} of {item_type}>'.format(
             klass=self.__class__.__name__,
             item_type=repr(self.item_type),
@@ -532,16 +548,17 @@ class Tuple(Type):
                 * expected_length
                 * actual_length
     """
-    default_error_messages = {
+    default_error_messages: dict[str, str] = {
         'invalid': 'Value should be list',
         'invalid_length': 'Value length should be {expected_length}',
     }
+    item_types: list[Type]
 
-    def __init__(self, item_types, **kwargs):
+    def __init__(self, item_types: list[Type], **kwargs):
         super(Tuple, self).__init__(**kwargs)
         self.item_types = item_types
 
-    def load(self, data, *args, **kwargs):
+    def load(self, data: t.Any, *args, **kwargs) -> tuple[t.Any]:
         if data is MISSING or data is None:
             self._fail('required')
 
@@ -564,7 +581,7 @@ class Tuple(Type):
 
         return tuple(super(Tuple, self).load(result, *args, **kwargs))
 
-    def dump(self, value, *args, **kwargs):
+    def dump(self, value: t.Any, *args, **kwargs) -> list[t.Any]:
         if value is MISSING or value is None:
             self._fail('required')
 
@@ -587,14 +604,14 @@ class Tuple(Type):
 
         return super(Tuple, self).dump(result, *args, **kwargs)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return '<{klass} of {item_types}>'.format(
             klass=self.__class__.__name__,
             item_types=repr(self.item_types),
         )
 
 
-def type_name_hint(data):
+def type_name_hint(data: t.Any) -> str:
     """Returns type name of given value.
 
     To be used as a type hint in :class:`OneOf`.
@@ -602,7 +619,7 @@ def type_name_hint(data):
     return data.__class__.__name__
 
 
-def dict_value_hint(key, mapper=None):
+def dict_value_hint(key: t.Any, mapper: t.Callable[[t.Any], t.Any] | None = None) -> t.Callable[[t.Any], t.Any]:
     """Returns a function that takes a dictionary and returns value of
     particular key. The returned value can be optionally processed by `mapper`
     function.
@@ -633,7 +650,7 @@ class OneOf(Type):
 
         ValueType = OneOf([String(), List(String())])
 
-        ValutType.dump('foo')           # => 'foo'
+        ValueType.dump('foo')           # => 'foo'
         ValueType.dump(['foo', 'bar'])  # => ['foo', 'bar']
 
     When used with a mapping of types, it requires two hint functions to be
@@ -723,26 +740,29 @@ class OneOf(Type):
                 * value
     """
 
-    default_error_messages = {
+    default_error_messages: dict[str, str] = {
         'invalid': 'Invalid data',
         'unknown_type_id': 'Unknown type ID: {type_id}',
         'no_type_matched': 'No type matched',
     }
+    types: t.Sequence[Type] | t.Mapping[str, Type]
+    load_hint: t.Callable[[t.Any], str]
+    dump_hint: t.Callable[[t.Any], str]
 
-    def __init__(self, types,
-                 load_hint=type_name_hint,
-                 dump_hint=type_name_hint,
-                 *args, **kwargs):
+    def __init__(self, types: t.Sequence[Type] | t.Mapping[str, Type],
+                 load_hint: t.Callable[[t.Any], str] = type_name_hint,
+                 dump_hint: t.Callable[[t.Any], str] = type_name_hint,
+                 *args, **kwargs) -> None:
         super(OneOf, self).__init__(*args, **kwargs)
         self.types = types
         self.load_hint = load_hint
         self.dump_hint = dump_hint
 
-    def load(self, data, *args, **kwargs):
+    def load(self, data: t.Any, *args, **kwargs) -> t.Any:
         if data is MISSING or data is None:
             self._fail('required')
 
-        if is_mapping(self.types) and self.load_hint:
+        if isinstance(self.types, t.Mapping) and self.load_hint is not None:
             type_id = self.load_hint(data)
             if type_id not in self.types:
                 self._fail('unknown_type_id', data=data, type_id=type_id)
@@ -752,7 +772,7 @@ class OneOf(Type):
             return super(OneOf, self).load(result, *args, **kwargs)
         else:
             for item_type in (self.types.values()
-                              if is_mapping(self.types) else self.types):
+                              if isinstance(self.types, t.Mapping) else self.types):
                 try:
                     result = item_type.load(data, *args, **kwargs)
                     return super(OneOf, self).load(result, *args, **kwargs)
@@ -761,30 +781,30 @@ class OneOf(Type):
 
             self._fail('no_type_matched', data=data)
 
-    def dump(self, data, *args, **kwargs):
-        if data is MISSING or data is None:
+    def dump(self, value: t.Any, *args, **kwargs) -> t.Any:
+        if value is MISSING or value is None:
             self._fail('required')
 
-        if is_mapping(self.types) and self.dump_hint:
-            type_id = self.dump_hint(data)
+        if isinstance(self.types, t.Mapping) and self.dump_hint is not None:
+            type_id = self.dump_hint(value)
             if type_id not in self.types:
-                self._fail('unknown_type_id', data=data, type_id=type_id)
+                self._fail('unknown_type_id', data=value, type_id=type_id)
 
             item_type = self.types[type_id]
-            result = item_type.dump(data, *args, **kwargs)
+            result = item_type.dump(value, *args, **kwargs)
             return super(OneOf, self).dump(result, *args, **kwargs)
         else:
             for item_type in (self.types.values()
-                              if is_mapping(self.types) else self.types):
+                              if isinstance(self.types, t.Mapping) else self.types):
                 try:
-                    result = item_type.dump(data, *args, **kwargs)
+                    result = item_type.dump(value, *args, **kwargs)
                     return super(OneOf, self).dump(result, *args, **kwargs)
                 except ValidationError as ve:
                     pass
 
-            self._fail('no_type_matched', data=data)
+            self._fail('no_type_matched', data=value)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return '<{klass} {types}>'.format(
             klass=self.__class__.__name__,
             types=repr(self.types),
@@ -816,11 +836,15 @@ class Dict(Type):
                 * data - actual value
     """
 
-    default_error_messages = {
+    default_error_messages: dict[str, str] = {
         'invalid': 'Value should be dict',
     }
+    value_types: dict[t.Any, Type]
+    key_type: t.Any
+    ordered: bool
 
-    def __init__(self, value_types=None, key_type=None, ordered=False, **kwargs):
+    def __init__(self, value_types: dict | Type | None = None,
+                 key_type: t.Any = None, ordered: bool = False, **kwargs):
         super(Dict, self).__init__(**kwargs)
         if value_types is None:
             value_types = DictWithDefault(default=Any())
@@ -830,7 +854,7 @@ class Dict(Type):
         self.key_type = key_type or Any()
         self.ordered = ordered
 
-    def load(self, data, *args, **kwargs):
+    def load(self, data: t.Any, *args, **kwargs) -> t.Any:
         if data is MISSING or data is None:
             self._fail('required')
 
@@ -864,7 +888,7 @@ class Dict(Type):
                 continue
 
             try:
-                loaded = value_type.load(MISSING, *args, **kwargs)
+                loaded = value_type.load(MISSING, *args, **kwargs)  # type: ignore
                 if loaded is not MISSING:
                     result[k] = loaded
             except ValidationError as ve:
@@ -874,7 +898,7 @@ class Dict(Type):
 
         return super(Dict, self).load(result, *args, **kwargs)
 
-    def dump(self, value, *args, **kwargs):
+    def dump(self, value: t.Any, *args, **kwargs) -> t.Any:
         if value is MISSING or value is None:
             self._fail('required')
 
@@ -908,7 +932,7 @@ class Dict(Type):
                 continue
 
             try:
-                dumped = value_type.dump(value.get(k, MISSING), *args, **kwargs)
+                dumped = value_type.dump(value.get(k, MISSING), *args, **kwargs)  # type: ignore
                 if dumped is not MISSING:
                     result[k] = dumped
             except ValidationError as ve:
@@ -918,7 +942,7 @@ class Dict(Type):
 
         return super(Dict, self).dump(result, *args, **kwargs)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return '<{klass} of {value_types}>'.format(
             klass=self.__class__.__name__,
             value_types=repr(self.value_types),
@@ -939,17 +963,19 @@ class Constant(Type):
                 * actual_value - actual value
     """
 
-    default_error_messages = {
+    default_error_messages: dict[str, str] = {
         'required': 'Value is required',
         'value': 'Value is incorrect',
     }
+    value: t.Any
+    field_type: Type
 
-    def __init__(self, value, field_type=Any(), *args, **kwargs):
+    def __init__(self, value: t.Any, field_type: Type = Any(), *args, **kwargs):
         super(Constant, self).__init__(*args, **kwargs)
         self.value = value
         self.field_type = field_type
 
-    def load(self, data, *args, **kwargs):
+    def load(self, data: t.Any, *args, **kwargs) -> t.Any:
         value = self.field_type.load(data)
         if value is MISSING or value is None:
             self._fail('required')
@@ -959,10 +985,10 @@ class Constant(Type):
 
         return value
 
-    def dump(self, value, *args, **kwargs):
+    def dump(self, value: t.Any, *args, **kwargs) -> t.Any:
         return self.field_type.dump(self.value, *args, **kwargs)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return '<{klass} {value} of type {field_type}>'.format(
             klass=self.__class__.__name__,
             value=repr(self.value),
@@ -978,29 +1004,31 @@ class Field(ErrorMessagesMixin):
 
     :param Type field_type: Field type.
     """
-    def __init__(self, field_type, *args, **kwargs):
+    field_type: Type
+
+    def __init__(self, field_type: Type, *args, **kwargs):
         super(Field, self).__init__(*args, **kwargs)
         self.field_type = field_type
 
-    def get_value(self, name, obj, context=None):
+    def get_value(self, name: str, obj: t.Any, context: t.Any = None) -> t.Any:
         """Get value of field `name` from object `obj`.
 
         :params str name: Field name.
         :params obj: Object to get field value from.
         :returns: Field value.
         """
-        raise NotImplemented()
+        raise NotImplementedError()
 
-    def set_value(self, name, obj, value, context=None):
+    def set_value(self, name: str, obj: t.Any, value: t.Any, context: t.Any = None) -> None:
         """Set given value of field `name` to object `obj`.
 
         :params str name: Field name.
         :params obj: Object to get field value from.
         :params value: Field value to set.
         """
-        raise NotImplemented()
+        raise NotImplementedError()
 
-    def load(self, name, data, context=None):
+    def load(self, name: str, data: t.Any, context: t.Any = None) -> t.Any:
         """Deserialize data from primitive types. Raises
         :exc:`~lollipop.errors.ValidationError` if data is invalid.
 
@@ -1012,7 +1040,8 @@ class Field(ErrorMessagesMixin):
         """
         return self.field_type.load(data.get(name, MISSING), context=context)
 
-    def load_into(self, obj, name, data, inplace=True, context=None):
+    def load_into(self, obj: t.Any, name: str, data: t.Any,
+                  inplace: bool = True, context: t.Any = None) -> t.Any:
         """Deserialize data from primitive types updating existing object.
         Raises :exc:`~lollipop.errors.ValidationError` if data is invalid.
 
@@ -1041,7 +1070,7 @@ class Field(ErrorMessagesMixin):
         else:
             return self.field_type.load(value, context=context)
 
-    def dump(self, name, obj, context=None):
+    def dump(self, name: str, obj: t.Any, context: t.Any = None) -> t.Any:
         """Serialize data to primitive types. Raises
         :exc:`~lollipop.errors.ValidationError` if data is invalid.
 
@@ -1053,7 +1082,7 @@ class Field(ErrorMessagesMixin):
         value = self.get_value(name, obj, context=context)
         return self.field_type.dump(value, context=context)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return '<{klass} {field_type}>'.format(
             klass=self.__class__.__name__,
             field_type=repr(self.field_type),
@@ -1071,7 +1100,9 @@ class AttributeField(Field):
         If callable, should take a single argument - name of field - and
         return name of corresponding object attribute to obtain value from.
     """
-    def __init__(self, field_type, attribute=None, *args, **kwargs):
+    name_to_attribute: t.Callable[[str], str]
+
+    def __init__(self, field_type, attribute: t.Callable[[str], str] | str | None = None, *args, **kwargs):
         super(AttributeField, self).__init__(field_type, *args, **kwargs)
         if attribute is None:
             attribute = identity
@@ -1079,10 +1110,10 @@ class AttributeField(Field):
             attribute = constant(attribute)
         self.name_to_attribute = attribute
 
-    def get_value(self, name, obj, context=None):
+    def get_value(self, name: str, obj: t.Any, context: t.Any = None) -> t.Any:
         return getattr(obj, self.name_to_attribute(name), MISSING)
 
-    def set_value(self, name, obj, value, context=None):
+    def set_value(self, name: str, obj: t.Any, value: t.Any, context: t.Any = None) -> None:
         setattr(obj, self.name_to_attribute(name), value)
 
 
@@ -1097,7 +1128,9 @@ class IndexField(Field):
         If callable, should take a single argument - name of field - and
         return name of corresponding object key to obtain value from.
     """
-    def __init__(self, field_type, key=None, *args, **kwargs):
+    name_to_key: t.Callable[[str], str]
+
+    def __init__(self, field_type: Type, key: str | t.Callable[[str], str] | None = None, *args, **kwargs):
         super(IndexField, self).__init__(field_type, *args, **kwargs)
         if key is None:
             key = identity
@@ -1105,13 +1138,13 @@ class IndexField(Field):
             key = constant(key)
         self.name_to_key = key
 
-    def get_value(self, name, obj, context=None):
+    def get_value(self, name: str, obj: t.Any, context: t.Any = None) -> t.Any:
         try:
             return obj[self.name_to_key(name)]
         except KeyError:
             return MISSING
 
-    def set_value(self, name, obj, value, context=None):
+    def set_value(self, name: str, obj: t.Any, value: t.Any, context: t.Any = None) -> None:
         obj[self.name_to_key(name)] = value
 
 
@@ -1146,7 +1179,11 @@ class MethodField(Field):
         Referenced method should take 1 argument - new field value to set.
     :param kwargs: Same keyword arguments as for :class:`Field`.
     """
-    def __init__(self, field_type, get=None, set=None, *args, **kwargs):
+    get_method: t.Callable[[str], str] | None
+    set_method: t.Callable[[str], str] | None
+
+    def __init__(self, field_type: Type, get: str | t.Callable[[str], str] | None = None,
+                 set: str | t.Callable[[str], str] | None = None, *args, **kwargs):
         super(MethodField, self).__init__(field_type, *args, **kwargs)
         if get is not None:
             if not callable(get):
@@ -1157,7 +1194,7 @@ class MethodField(Field):
         self.get_method = get
         self.set_method = set
 
-    def get_value(self, name, obj, context=None):
+    def get_value(self, name: str, obj: t.Any, context: t.Any = None) -> t.Any:
         if not self.get_method:
             return MISSING
 
@@ -1169,7 +1206,7 @@ class MethodField(Field):
             raise ValueError('Value of %s is not callable' % method_name)
         return make_context_aware(method, 0)(context)
 
-    def set_value(self, name, obj, value, context=None):
+    def set_value(self, name: str, obj: t.Any, value: t.Any, context: t.Any = None) -> t.Any:
         if not self.set_method:
             return MISSING
 
@@ -1206,7 +1243,11 @@ class FunctionField(Field):
     :param callable set: Function that takes source object and new field value
         and sets that value to object field. Function return value is ignored.
     """
-    def __init__(self, field_type, get=None, set=None, *args, **kwargs):
+    get_func: t.Callable[[t.Any, t.Any], str] | None
+    set_func: t.Callable[[t.Any, t.Any, t.Any], None] | None
+
+    def __init__(self, field_type: Type, get: t.Callable[[t.Any, t.Any], str] | None = None,
+                 set: t.Callable[[t.Any, t.Any, t.Any], None] | None = None, *args, **kwargs):
         super(FunctionField, self).__init__(field_type, *args, **kwargs)
         if get is not None and not callable(get):
             raise ValueError("Get function is not callable")
@@ -1221,21 +1262,21 @@ class FunctionField(Field):
         self.get_func = get
         self.set_func = set
 
-    def get_value(self, name, obj, context=None):
+    def get_value(self, name: str, obj: t.Any, context: t.Any = None) -> t.Any:
         if self.get_func is None:
             return MISSING
         return self.get_func(obj, context)
 
-    def set_value(self, name, obj, value, context=None):
+    def set_value(self, name: str, obj: t.Any, value: t.Any, context: t.Any = None) -> t.Any:
         if self.set_func is None:
             return MISSING
         self.set_func(obj, value, context)
 
 
-def inheritable_property(name):
+def inheritable_property(name: str) -> t.Any:
     cache_attr = '__' + name
 
-    @property
+    @property  # type: ignore
     def getter(self):
         if not hasattr(self, cache_attr):
             value = getattr(self, '_' + name)
@@ -1316,24 +1357,34 @@ class Object(Type):
         * unknown - reported for unknown fields
     """
 
-    default_error_messages = {
+    default_error_messages: dict[str, str] = {
         'invalid': 'Value should be dict',
         'unknown': 'Unknown field',
     }
+    bases: t.Sequence[Type]
+    default_field_type: t.Callable[..., t.Any] | None
+    constructor: t.Callable[..., t.Any] | None
+    allow_extra_fields: bool | Type | Field | None
+    immutable: bool | None
+    ordered: bool | None
 
-    def __init__(self, bases_or_fields=None, fields=None, constructor=None,
-                 default_field_type=None,
-                 allow_extra_fields=None, only=None, exclude=None,
-                 immutable=None, ordered=None,
+    def __init__(self, bases_or_fields: Type | t.Sequence | t.Mapping | None = None,
+                 fields: Type | t.Sequence | t.Mapping | None = None,
+                 constructor: t.Callable[..., t.Any] | None = None,
+                 default_field_type: t.Callable[..., t.Any] | None = None,
+                 allow_extra_fields: bool | Type | Field | None = None,
+                 only: t.Any = None, exclude: t.Any = None,
+                 immutable: bool | None = None, ordered: bool | None = None,
                  **kwargs):
         super(Object, self).__init__(**kwargs)
 
         if bases_or_fields is None and fields is None:
             raise ValueError('No base and/or fields are specified')
 
+        bases: t.Sequence[Type]
         if isinstance(bases_or_fields, Type):
             bases = [bases_or_fields]
-        if is_sequence(bases_or_fields) and \
+        if isinstance(bases_or_fields, t.Sequence) and \
                 all([isinstance(base, Type) for base in bases_or_fields]):
             bases = bases_or_fields
         elif is_sequence(bases_or_fields) or is_mapping(bases_or_fields):
@@ -1349,7 +1400,7 @@ class Object(Type):
         self._constructor = constructor
         if isinstance(allow_extra_fields, Type):
             allow_extra_fields = \
-                (self.default_field_type or AttributeField)(allow_extra_fields)
+                (self.default_field_type or AttributeField)(allow_extra_fields)  # type: ignore
         self._allow_extra_fields = allow_extra_fields
         self._immutable = immutable
         self._ordered = ordered
@@ -1362,7 +1413,7 @@ class Object(Type):
         self._fields = fields
 
     @property
-    def fields(self):
+    def fields(self) -> dict[str, t.Any]:
         if not hasattr(self, '_resolved_fields'):
             self._resolved_fields = self._resolve_fields(self.bases, self._fields,
                                                          self._only, self._exclude)
@@ -1406,7 +1457,7 @@ class Object(Type):
 
         return OrderedDict(all_fields)
 
-    def load(self, data, *args, **kwargs):
+    def load(self, data: t.Any, *args, **kwargs) -> t.Any:
         if data is MISSING or data is None:
             self._fail('required')
 
@@ -1451,7 +1502,7 @@ class Object(Type):
 
         return result
 
-    def load_into(self, obj, data, inplace=True, *args, **kwargs):
+    def load_into(self, obj: t.Any, data: t.Any, inplace: bool = True, *args, **kwargs) -> t.Any:
         """Load data and update existing object.
 
         :param obj: Object to update with deserialized data.
@@ -1505,7 +1556,7 @@ class Object(Type):
             for name in data:
                 if name not in field_names:
                     try:
-                        loaded = self.allow_extra_fields.load_into(
+                        loaded = self.allow_extra_fields.load_into(  # type: ignore
                             obj, name, data,
                             inplace=not self.immutable and inplace,
                             *args, **kwargs
@@ -1535,7 +1586,7 @@ class Object(Type):
 
         return result
 
-    def validate_for(self, obj, data, *args, **kwargs):
+    def validate_for(self, obj: t.Any, data: t.Any, *args, **kwargs) -> t.Any:
         """Takes target object and serialized data, tries to update that object
         with data and validate result. Returns validation errors or None.
         Object is not updated.
@@ -1548,13 +1599,13 @@ class Object(Type):
         :returns: validation errors or None
         """
         try:
-            self.load_into(obj, data, inplace=False, *args, **kwargs)
+            self.load_into(obj, data, inplace=False, *args, **kwargs)  # type: ignore
             return None
         except ValidationError as ve:
             return ve.messages
 
-    def dump(self, obj, *args, **kwargs):
-        if obj is MISSING or obj is None:
+    def dump(self, value: t.Any, *args, **kwargs) -> t.Any:
+        if value is MISSING or value is None:
             self._fail('required')
 
         errors_builder = ValidationErrorBuilder()
@@ -1562,7 +1613,7 @@ class Object(Type):
 
         for name, field in iteritems(self.fields):
             try:
-                dumped = field.dump(name, obj, *args, **kwargs)
+                dumped = field.dump(name, value, *args, **kwargs)
                 if dumped != MISSING:
                     result[name] = dumped
             except ValidationError as ve:
@@ -1571,7 +1622,7 @@ class Object(Type):
 
         return super(Object, self).dump(result, *args, **kwargs)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return '<{klass}{fields}>'.format(
             klass=self.__class__.__name__,
             fields=''.join([' %s=%s' % (name, field_type.field_type)
@@ -1586,7 +1637,9 @@ class Modifier(Type):
 
     :param Type inner_type: Actual type that should be optional.
     """
-    def __init__(self, inner_type, **kwargs):
+    inner_type: Type
+
+    def __init__(self, inner_type: Type, **kwargs) -> None:
         super(Modifier, self).__init__(
             **dict({'name': inner_type.name,
                     'description': inner_type.description},
@@ -1594,13 +1647,13 @@ class Modifier(Type):
         )
         self.inner_type = inner_type
 
-    def __hasattr__(self, name):
+    def __hasattr__(self, name: str) -> bool:
         return hasattr(self.inner_type, name)
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: str) -> t.Any:
         return getattr(self.inner_type, name)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return '<{klass} {inner_type}>'.format(
             klass=self.__class__.__name__,
             inner_type=repr(self.inner_type),
@@ -1632,8 +1685,11 @@ class Optional(Modifier):
         arguments to get value to use when value is missing on serialization.
     :param kwargs: Same keyword arguments as for :class:`Type`.
     """
-    def __init__(self, inner_type,
-                 load_default=None, dump_default=None,
+    load_default: t.Callable[..., t.Any]
+    dump_default: t.Callable[..., t.Any]
+
+    def __init__(self, inner_type: Type,
+                 load_default: t.Any = None, dump_default: t.Any = None,
                  **kwargs):
         super(Optional, self).__init__(inner_type, **kwargs)
         if not callable(load_default):
@@ -1643,23 +1699,23 @@ class Optional(Modifier):
         self.load_default = make_context_aware(load_default, 0)
         self.dump_default = make_context_aware(dump_default, 0)
 
-    def load(self, data, context=None, *args, **kwargs):
+    def load(self, data: t.Any, context: t.Any = None, *args, **kwargs) -> t.Any:
         if data is MISSING or data is None:
             return self.load_default(context)
         return super(Optional, self).load(
-            self.inner_type.load(data, context=context, *args, **kwargs),
+            self.inner_type.load(data, context=context),
             *args, **kwargs
         )
 
-    def dump(self, data, context=None, *args, **kwargs):
-        if data is MISSING or data is None:
+    def dump(self, value: t.Any, context: t.Any = None, *args, **kwargs) -> t.Any:
+        if value is MISSING or value is None:
             return self.dump_default(context)
         return super(Optional, self).dump(
-            self.inner_type.dump(data, context=context, *args, **kwargs),
+            self.inner_type.dump(value, context=context),
             *args, **kwargs
         )
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return '<{klass} {inner_type}>'.format(
             klass=self.__class__.__name__,
             inner_type=repr(self.inner_type),
@@ -1679,10 +1735,10 @@ class LoadOnly(Modifier):
 
     :param Type inner_type: Data type.
     """
-    def load(self, data, *args, **kwargs):
+    def load(self, data: t.Any, *args, **kwargs) -> t.Any:
         return self.inner_type.load(data, *args, **kwargs)
 
-    def dump(self, data, *args, **kwargs):
+    def dump(self, value: t.Any, *args, **kwargs) -> t.Any:
         return MISSING
 
 
@@ -1699,11 +1755,11 @@ class DumpOnly(Modifier):
 
     :param Type inner_type: Data type.
     """
-    def load(self, data, *args, **kwargs):
+    def load(self, data: t.Any, *args, **kwargs) -> t.Any:
         return MISSING
 
-    def dump(self, data, *args, **kwargs):
-        return self.inner_type.dump(data, *args, **kwargs)
+    def dump(self, value: t.Any, *args, **kwargs) -> t.Any:
+        return self.inner_type.dump(value, *args, **kwargs)
 
 
 class Transform(Modifier):
@@ -1740,16 +1796,21 @@ class Transform(Modifier):
         Argument should be a callable taking one argument - value - and returning
         updated value. Optionally it can take a second argument - context.
     """
-    def __init__(self, inner_type,
-                 pre_load=identity, post_load=identity,
-                 pre_dump=identity, post_dump=identity):
+    pre_load: t.Callable[..., t.Any]
+    post_load: t.Callable[..., t.Any]
+    pre_dump: t.Callable[..., t.Any]
+    post_dump: t.Callable[..., t.Any]
+
+    def __init__(self, inner_type: Type,
+                 pre_load: t.Callable[..., t.Any] = identity, post_load: t.Callable[..., t.Any] = identity,
+                 pre_dump: t.Callable[..., t.Any] = identity, post_dump: t.Callable[..., t.Any] = identity):
         super(Transform, self).__init__(inner_type)
         self.pre_load = make_context_aware(pre_load, 1)
         self.post_load = make_context_aware(post_load, 1)
         self.pre_dump = make_context_aware(pre_dump, 1)
         self.post_dump = make_context_aware(post_dump, 1)
 
-    def load(self, data, context=None):
+    def load(self, data: t.Any, context: t.Any = None) -> t.Any:
         return self.post_load(
             self.inner_type.load(
                 self.pre_load(data, context),
@@ -1758,7 +1819,7 @@ class Transform(Modifier):
             context,
         )
 
-    def dump(self, value, context=None):
+    def dump(self, value: t.Any, context: t.Any = None) -> t.Any:
         return self.post_dump(
             self.inner_type.dump(
                 self.pre_dump(value, context),
@@ -1768,7 +1829,8 @@ class Transform(Modifier):
         )
 
 
-def validated_type(base_type, name=None, validate=None):
+def validated_type(base_type: t.Type, name: str | None = None,
+                   validate: t.Callable[..., None] | list[t.Callable[..., None]] | None = None) -> t.Type:
     """Convenient way to create a new type by adding validation to existing type.
 
     Example: ::
@@ -1801,10 +1863,12 @@ def validated_type(base_type, name=None, validate=None):
     """
     if validate is None:
         validate = []
-    if not is_sequence(validate):
+    elif not isinstance(validate, t.Sequence):
         validate = [validate]
 
     class ValidatedSubtype(base_type):
+        validators: list[t.Callable[..., None]]
+
         if name is not None:
             __name__ = name
 

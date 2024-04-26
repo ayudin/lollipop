@@ -1,3 +1,8 @@
+from __future__ import annotations
+
+import typing as t
+import typing_extensions as te
+
 from lollipop.compat import iteritems, string_types
 
 
@@ -6,6 +11,7 @@ __all__ = [
     'ValidationError',
     'ValidationErrorBuilder',
     'merge_errors',
+    'MessageType',
 ]
 
 
@@ -13,10 +19,12 @@ __all__ = [
 #: for it's fields::
 #:
 #:     {'field1': 'Field error', '_schema': 'Whole object error'}
-SCHEMA = '_schema'
+SCHEMA: str = '_schema'
 
-MISSING_ERROR_MESSAGE = \
+MISSING_ERROR_MESSAGE: str = \
     'Error message "{error_key}" in class {class_name} does not exist'
+
+MessageType: te.TypeAlias = t.Union[str, t.List[str], t.Dict[t.Union[str, int], 'MessageType']]
 
 
 class ValidationError(Exception):
@@ -34,21 +42,25 @@ class ValidationError(Exception):
     :param messages: Validation error messages. String, list of strings or dict
         where keys are nested fields and values are error messages.
     """
-    def __init__(self, messages):
+    messages: MessageType
+
+    def __init__(self, messages: MessageType):
         super(ValidationError, self).__init__('Invalid data: %r' % messages)
         # TODO: normalize messages
         self.messages = messages
 
 
 class ErrorMessagesMixin(object):
-    def __init__(self, error_messages=None, *args, **kwargs):
+    error_messages: dict[str, str]
+
+    def __init__(self, error_messages: dict[str, str] | None = None, *args, **kwargs) -> None:
         super(ErrorMessagesMixin, self).__init__(*args, **kwargs)
-        self._error_messages = {}
+        self._error_messages: dict = {}
         for cls in reversed(self.__class__.__mro__):
             self._error_messages.update(getattr(cls, 'default_error_messages', {}))
         self._error_messages.update(error_messages or {})
 
-    def _fail(self, error_key, **kwargs):
+    def _fail(self, error_key: str, **kwargs) -> None:
         if error_key not in self._error_messages:
             msg = MISSING_ERROR_MESSAGE.format(
                 class_name=self.__class__.__name__,
@@ -63,7 +75,8 @@ class ErrorMessagesMixin(object):
         raise ValidationError(msg)
 
 
-def merge_errors(errors1, errors2):
+def merge_errors(errors1: MessageType | None,
+                 errors2: MessageType | None):
     """Deeply merges two error messages. Error messages can be
     string, list of strings or dict of error messages (recursively).
     Format is the same as accepted by :exc:`ValidationError`.
@@ -132,11 +145,12 @@ class ValidationErrorBuilder(object):
             ...
             builder.raise_errors()
     """
+    errors: MessageType | None
 
     def __init__(self):
         self.errors = None
 
-    def _make_error(self, path, error):
+    def _make_error(self, path: str, error: MessageType) -> dict:
         parts = path.split('.', 1) if isinstance(path, string_types) else [path]
 
         if len(parts) == 1:
@@ -144,7 +158,7 @@ class ValidationErrorBuilder(object):
         else:
             return {parts[0]: self._make_error(parts[1], error)}
 
-    def add_error(self, path, error):
+    def add_error(self, path: str, error: MessageType) -> None:
         """Add error message for given field path.
 
         Example: ::
@@ -159,7 +173,7 @@ class ValidationErrorBuilder(object):
         """
         self.errors = merge_errors(self.errors, self._make_error(path, error))
 
-    def add_errors(self, errors):
+    def add_errors(self, errors: MessageType) -> None:
         """Add errors in dict format.
 
         Example: ::
@@ -174,7 +188,7 @@ class ValidationErrorBuilder(object):
         """
         self.errors = merge_errors(self.errors, errors)
 
-    def raise_errors(self):
+    def raise_errors(self) -> None:
         """Raise :exc:`ValidationError` if errors are not empty;
         do nothing otherwise.
         """
