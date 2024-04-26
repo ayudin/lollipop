@@ -1,28 +1,34 @@
+from __future__ import annotations
+
 import inspect
 import re
-from lollipop.compat import DictMixin, Sequence, Mapping, iterkeys, PY2
+import typing as t
+from lollipop.compat import DictMixin, Sequence, Mapping, iterkeys, iteritems, PY2
 
 
-def identity(value):
+def identity(value: t.Any) -> t.Any:
     """Function that returns its argument."""
     return value
 
-def constant(value):
+
+def constant(value: t.Any) -> t.Callable:
     """Returns function that takes any arguments and always returns given value."""
     def func(*args, **kwargs):
         return value
     return func
 
 
-def is_sequence(value):
+def is_sequence(value) -> bool:
     """Returns True if value supports list interface; False - otherwise"""
     return isinstance(value, Sequence)
 
-def is_mapping(value):
+
+def is_mapping(value) -> bool:
     """Returns True if value supports dict interface; False - otherwise"""
     return isinstance(value, Mapping)
 
-def get_arg_count(func):
+
+def get_arg_count(func) -> int:
     """Calculates a number of arguments based on a signature."""
 
     if PY2:
@@ -73,24 +79,27 @@ def call_with_context(func, context, *args):
     return make_context_aware(func, len(args))(*args + (context,))
 
 
-def to_snake_case(s):
+def to_snake_case(s: str) -> str:
     """Converts camel-case identifiers to snake-case."""
     return re.sub('([^_A-Z])([A-Z])', lambda m: m.group(1) + '_' + m.group(2).lower(), s)
 
 
-def to_camel_case(s):
+def to_camel_case(s: str) -> str:
     """Converts snake-case identifiers to camel-case."""
     return re.sub('_([a-z])', lambda m: m.group(1).upper(), s)
 
 
-_default = object()
+_default: t.Final = object()
 
 
 class DictWithDefault(DictMixin, object):
-    def __init__(self, values={}, default=None):
+    default: t.Any
+
+    def __init__(self, values: dict[t.Any, t.Any] | None = None,
+                 default: t.Any = None):
         super(DictWithDefault, self).__init__()
-        self._values = values
-        self.default = default
+        self._values: dict[t.Any, t.Any] = values or {}
+        self.default: t.Any = default
 
     def __len__(self):
         return len(self._values)
@@ -125,18 +134,18 @@ class DictWithDefault(DictMixin, object):
     def keys(self):
         return self._values.keys()
 
-    def iterkeys(self):
+    def iterkeys(self) -> t.Generator[t.Any, None, None]:
         for k in iterkeys(self._values):
             yield k
 
-    def iteritems(self):
-        for k, v in self._values.iteritems():
+    def iteritems(self) -> t.Generator[t.Any, None, None]:
+        for k, v in iteritems(self._values):
             yield k, v
 
 
 class OpenStruct(DictMixin):
     """A dictionary that also allows accessing values through object attributes."""
-    def __init__(self, data=None):
+    def __init__(self, data: dict[t.Any, t.Any] | None = None):
         self.__dict__.update({'_data': data or {}})
 
     def __getitem__(self, key):
@@ -161,12 +170,12 @@ class OpenStruct(DictMixin):
     def keys(self):
         return self._data.keys()
 
-    def iterkeys(self):
+    def iterkeys(self) -> t.Generator[t.Any, None, None]:
         for k in iterkeys(self._data):
             yield k
 
-    def iteritems(self):
-        for k, v in self._data.iteritems():
+    def iteritems(self) -> t.Generator[t.Any, None, None]:
+        for k, v in iteritems(self._data):
             yield k, v
 
     def __hasattr__(self, name):

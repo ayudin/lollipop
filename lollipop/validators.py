@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 from lollipop.errors import ValidationError, ValidationErrorBuilder, \
     ErrorMessagesMixin
 from lollipop.compat import string_types, iteritems
 from lollipop.utils import make_context_aware, is_sequence, identity
 import re
+import typing as t
 
 
 __all__ = [
@@ -29,11 +32,11 @@ class Validator(ErrorMessagesMixin, object):
     ignored.
     """
 
-    def __call__(self, value, context=None):
+    def __call__(self, value: t.Any, context: t.Any | None = None) -> None:
         """Validate value. In case of errors, raise
         :exc:`~lollipop.errors.ValidationError`. Return value is always ignored.
         """
-        raise NotImplemented()
+        raise NotImplementedError()
 
 
 class Predicate(Validator):
@@ -47,18 +50,21 @@ class Predicate(Validator):
         Can be interpolated with ``data``.
     """
 
-    default_error_messages = {
+    default_error_messages: dict[str, str] = {
         'invalid': 'Invalid data',
     }
+    predicate: t.Callable[[t.Any, t.Any], bool]
+    error: str | None
 
-    def __init__(self, predicate, error=None, **kwargs):
+    def __init__(self, predicate: t.Callable[[t.Any], bool],
+                 error: str | None = None, **kwargs):
         super(Predicate, self).__init__(**kwargs)
         self.predicate = make_context_aware(predicate, 1)
         if error is not None:
             self._error_messages['invalid'] = error
         self.error = error
 
-    def __call__(self, value, context=None):
+    def __call__(self, value: t.Any, context: t.Any | None = None):
         if not self.predicate(value, context):
             self._fail('invalid', data=value)
 
@@ -78,13 +84,16 @@ class Range(Validator):
         Can be interpolated with ``data``, ``min`` or ``max``.
     """
 
-    default_error_messages = {
+    default_error_messages: dict[str, str] = {
         'min': 'Value should be at least {min}',
         'max': 'Value should be at most {max}',
         'range': 'Value should be at least {min} and at most {max}',
     }
+    min: t.Any
+    max: t.Any
 
-    def __init__(self, min=None, max=None, error=None, **kwargs):
+    def __init__(self, min: t.Any = None, max: t.Any = None,
+                 error: str | None = None, **kwargs):
         super(Range, self).__init__(**kwargs)
         self.min = min
         self.max = max
@@ -95,7 +104,7 @@ class Range(Validator):
     def _fail(self, key, **kwargs):
         super(Range, self)._fail(key, min=self.min, max=self.max, **kwargs)
 
-    def __call__(self, value, context=None):
+    def __call__(self, value: t.Any, context: t.Any | None = None):
         if self.min is not None and self.max is not None:
             if value < self.min or value > self.max:
                 self._fail('range', data=value)
@@ -126,14 +135,18 @@ class Length(Validator):
     :param str error: Error message in case of validation error.
         Can be interpolated with ``data``, ``length``, ``exact``, ``min`` or ``max``.
     """
-    default_error_messages = {
+    default_error_messages: dict[str, str] = {
         'exact': 'Length should be {exact}',
         'min': 'Length should be at least {min}',
         'max': 'Length should be at most {max}',
         'range': 'Length should be at least {min} and at most {max}',
     }
+    exact: t.Any
+    min: t.Any
+    max: t.Any
 
-    def __init__(self, exact=None, min=None, max=None, error=None, **kwargs):
+    def __init__(self, exact: t.Any = None, min: t.Any = None, max: t.Any = None,
+                 error: str | None=None, **kwargs):
         super(Length, self).__init__(**kwargs)
         self.exact = exact
         self.min = min
@@ -146,7 +159,7 @@ class Length(Validator):
         super(Length, self)._fail(key, exact=self.exact, min=self.min, max=self.max,
                                   **kwargs)
 
-    def __call__(self, value, context=None):
+    def __call__(self, value: t.Any, context: t.Any = None):
         length = len(value)
         if self.exact is not None:
             if length != self.exact:
@@ -185,17 +198,18 @@ class NoneOf(Validator):
         Can be interpolated with ``data`` and ``values``.
     """
 
-    default_error_messages = {
+    default_error_messages: dict[str, str] = {
         'invalid': 'Invalid data',
     }
+    values: t.Iterable
 
-    def __init__(self, values, error=None, **kwargs):
+    def __init__(self, values: t.Iterable, error: str | None = None, **kwargs):
         super(NoneOf, self).__init__(**kwargs)
         self.values = values
         if error is not None:
             self._error_messages['invalid'] = error
 
-    def __call__(self, value, context=None):
+    def __call__(self, value: t.Any, context: t.Any = None):
         if value in self.values:
             self._fail('invalid', data=value, values=self.values)
 
@@ -214,17 +228,18 @@ class AnyOf(Validator):
         Can be interpolated with ``data`` and ``choices``.
     """
 
-    default_error_messages = {
+    default_error_messages: dict[str, str] = {
         'invalid': 'Invalid choice',
     }
+    choices: t.Iterable
 
-    def __init__(self, choices, error=None, **kwargs):
+    def __init__(self, choices: t.Iterable, error: str | None = None, **kwargs):
         super(AnyOf, self).__init__(**kwargs)
         self.choices = choices
         if error is not None:
             self._error_messages['invalid'] = error
 
-    def __call__(self, value, context=None):
+    def __call__(self, value: t.Any, context: t.Any = None):
         if value not in self.choices:
             self._fail('invalid', data=value, choices=self.choices)
 
@@ -245,19 +260,21 @@ class Regexp(Validator):
         Can be interpolated with ``data`` and ``regexp``.
     """
 
-    default_error_messages = {
+    default_error_messages: dict[str, str] = {
         'invalid': 'String does not match expected pattern',
     }
+    regexp: re.Pattern[str]
 
-    def __init__(self, regexp, flags=0, error=None, **kwargs):
+    def __init__(self, regexp: str | re.Pattern[str], flags: int = 0,
+                 error: str | None = None, **kwargs):
         super(Regexp, self).__init__(**kwargs)
-        if isinstance(regexp, string_types):
+        if isinstance(regexp, str) or isinstance(regexp, string_types):
             regexp = re.compile(regexp, flags)
         self.regexp = regexp
         if error is not None:
             self._error_messages['invalid'] = error
 
-    def __call__(self, value, context=None):
+    def __call__(self, value: t.Any, context: t.Any | None = None):
         if self.regexp.match(value) is None:
             self._fail('invalid', data=value, regexp=self.regexp.pattern)
 
@@ -279,18 +296,19 @@ class Unique(Validator):
         and ``key`` (uniquness key that is not unique).
     """
 
-    default_error_messages = {
+    default_error_messages: dict[str, str] = {
         'invalid': 'Value should be collection',
         'unique': 'Values are not unique',
     }
+    key: t.Callable
 
-    def __init__(self, key=identity, error=None, **kwargs):
+    def __init__(self, key: t.Callable = identity, error: str | None = None, **kwargs):
         super(Unique, self).__init__(**kwargs)
         self.key = key
         if error is not None:
             self._error_messages['unique'] = error
 
-    def __call__(self, value, context=None):
+    def __call__(self, value: t.Any, context: t.Any | None = None):
         if not is_sequence(value):
             self._fail('invalid')
 
@@ -312,17 +330,18 @@ class Each(Validator):
     :param validators: Validator or list of validators to run against each element
         of collection.
     """
-    default_error_messages = {
+    default_error_messages: dict[str, str] = {
         'invalid': 'Value should be collection',
     }
+    validators: list[Validator]
 
-    def __init__(self, validators, **kwargs):
+    def __init__(self, validators: list[Validator] | Validator, **kwargs):
         super(Validator, self).__init__(**kwargs)
-        if not is_sequence(validators):
+        if not isinstance(validators, t.Sequence):
             validators = [validators]
         self.validators = validators
 
-    def __call__(self, value, context=None):
+    def __call__(self, value: t.Any, context: t.Any | None = None):
         if not is_sequence(value):
             self._fail('invalid', data=value)
 

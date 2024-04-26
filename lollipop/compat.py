@@ -1,7 +1,10 @@
-import sys
+from __future__ import annotations
 
-PY2 = int(sys.version_info[0]) == 2
-PY26 = PY2 and int(sys.version_info[1]) < 7
+import sys
+import typing as t
+
+PY2: t.Final[bool] = int(sys.version_info[0]) == 2
+PY26: t.Final[bool] = PY2 and int(sys.version_info[1]) < 7
 
 if PY2:
     string_types = (str, unicode)
@@ -12,19 +15,19 @@ if PY2:
     itervalues = lambda d: d.itervalues()
     iteritems = lambda d: d.iteritems()
 else:
-    string_types = (str,)
-    int_types = (int,)
-    unicode = str
-    basestring = (str, bytes)
-    iterkeys = lambda d: d.keys()
-    itervalues = lambda d: d.values()
-    iteritems = lambda d: d.items()
+    string_types: tuple[type] = (str,)
+    int_types: tuple[type] = (int,)
+    unicode: type = str
+    basestring: tuple = (str, bytes)
+    iterkeys: t.Callable = lambda d: d.keys()
+    itervalues: t.Callable = lambda d: d.values()
+    iteritems: t.Callable = lambda d: d.items()
 
 if PY26:
     from .ordereddict import OrderedDict
-    from UserDict import DictMixin
+    from UserDict import DictMixin  # type: ignore
 else:
-    from collections import OrderedDict
+    from collections import OrderedDict  # type: ignore
     try:
         from collections import (
             MutableMapping as DictMixin,

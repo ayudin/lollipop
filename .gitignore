@@ -89,3 +89,6 @@ ENV/
 .ropeproject
 
 docs/_build
+
+# PyCharm/IntelliJ Idea files
+.idea/
