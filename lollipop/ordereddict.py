@@ -23,7 +23,7 @@
 #     FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 #     OTHER DEALINGS IN THE SOFTWARE.
 
-from UserDict import DictMixin
+from UserDict import DictMixin  # type: ignore
 
 class OrderedDict(dict, DictMixin):
 
